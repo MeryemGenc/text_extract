@@ -2,108 +2,70 @@ import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
-import pytesseract
-from pytesseract import Output
-import re
+import easyocr
+import tempfile
+import os
 
-st.title("📄 OCR Görüntüden Yazı Tanıma Uygulaması")
+st.set_page_config(page_title="OCR Uygulaması", layout="wide")
+st.title("🧾 Görüntüden Yazı Tanıma Uygulaması (OCR)")
 
-# Görsel yükleme
-uploaded_file = st.file_uploader("📁 Bir görsel yükleyin", type=["png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader("📤 Bir görsel dosyası yükleyin", type=["png", "jpg", "jpeg"])
 
-if uploaded_file is not None:
+if uploaded_file:
     image = Image.open(uploaded_file)
     st.image(image, caption="Yüklenen Görsel", use_container_width=True)
 
-    # OpenCV formatına dönüştür
-    image_cv = np.array(image.convert('RGB'))
-    image_cv = cv2.cvtColor(image_cv, cv2.COLOR_RGB2BGR)
+    # Görüntüyü OpenCV formatına çevir
+    image_np = np.array(image.convert("RGB"))
+    image_cv = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
 
-    st.subheader("🔍 OCR Metni")
-    custom_config = r'-l eng --oem 3 --psm 6'
-    extracted_text = pytesseract.image_to_string(image_cv, config=custom_config)
-    st.text_area("Tespit Edilen Metin", extracted_text, height=150)
+    st.subheader("🛠️ Görüntü İşleme Seçenekleri")
+    mode = st.radio("OCR Modu Seçin", ["Basit", "Gelişmiş"], horizontal=True)
 
-    st.subheader("🧹 Temizlenmiş Metin")
-    cleaned_text = re.sub(r"[!()@—*“>+\-/,'|£#%$&^_~]", "", extracted_text)
-    st.text_area("Sembolleri Temizlenmiş Metin", cleaned_text, height=150)
+    processed = image_cv.copy()
 
-    # Görüntü işleme fonksiyonları
-    def get_grayscale(img):
-        return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    if mode == "Gelişmiş":
+        # Görüntü işlemleri
+        gray = cv2.cvtColor(processed, cv2.COLOR_BGR2GRAY)
+        if st.checkbox("📎 Grayscale Uygula", value=True):
+            processed = gray
 
-    def remove_noise(img):
-        return cv2.medianBlur(img, 5)
+        if st.checkbox("✨ Gürültü Gider (Median Blur)"):
+            processed = cv2.medianBlur(processed, 5)
 
-    def thresholding(img):
-        return cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        if st.checkbox("⚫ Threshold (Otsu)"):
+            _, processed = cv2.threshold(processed, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    def erode(img):
-        kernel = np.ones((5,5),np.uint8)
-        return cv2.erode(img, kernel, iterations=1)
+        if st.checkbox("📐 Eğim Düzelt (Skew Correction)"):
+            coords = np.column_stack(np.where(processed > 0))
+            angle = cv2.minAreaRect(coords)[-1]
+            if angle < -45:
+                angle = -(90 + angle)
+            else:
+                angle = -angle
+            (h, w) = processed.shape[:2]
+            M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
+            processed = cv2.warpAffine(processed, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
-    def opening(img):
-        kernel = np.ones((5,5),np.uint8)
-        return cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
+        st.image(processed, caption="İşlenmiş Görsel", use_container_width=True, channels="GRAY" if len(processed.shape)==2 else "BGR")
 
-    def canny(img):
-        return cv2.Canny(img, 100, 200)
+    # OCR işlemi
+    st.subheader("🔍 OCR Sonucu")
+    with st.spinner("Yazılar algılanıyor..."):
+        reader = easyocr.Reader(['en'])
+        result = reader.readtext(processed)
+        extracted_text = "\n".join([res[1] for res in result])
 
-    def deskew(img):
-        coords = np.column_stack(np.where(img > 0))
-        angle = cv2.minAreaRect(coords)[-1]
-        if angle < -45:
-            angle = -(90 + angle)
-        else:
-            angle = -angle
-        (h, w) = img.shape[:2]
-        center = (w // 2, h // 2)
-        M = cv2.getRotationMatrix2D(center, angle, 1.0)
-        return cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    st.text_area("📋 Tanınan Metin", value=extracted_text, height=200)
 
-    st.subheader("⚙️ Görüntü İşleme Adımları")
-    gray = get_grayscale(image_cv)
-    noise = remove_noise(gray)
-    thresh = thresholding(noise)
-    eroded = erode(thresh)
-    opened = opening(eroded)
-    edges = canny(opened)
-    deskewed = deskew(gray)
+    # Görsel üzerinde yazıları kutucuklarla göster
+    st.subheader("🖼️ Tespit Edilen Yazılar")
+    img_boxed = image_cv.copy()
+    for (bbox, text, conf) in result:
+        (tl, tr, br, bl) = bbox
+        tl = tuple(map(int, tl))
+        br = tuple(map(int, br))
+        cv2.rectangle(img_boxed, tl, br, (0, 255, 0), 2)
+        cv2.putText(img_boxed, text, (tl[0], tl[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
 
-    steps = {
-        "Gri Tonlama": gray,
-        "Gürültü Temizleme": noise,
-        "Eşikleme": thresh,
-        "Aşındırma (Erosion)": eroded,
-        "Açılma (Morphology)": opened,
-        "Kenar Algılama (Canny)": edges,
-        "Yamuk Düzeltme (Deskew)": deskewed
-    }
-
-    for title, step_img in steps.items():
-        st.markdown(f"**{title}**")
-        st.image(step_img, channels="GRAY")
-
-    st.subheader("📦 Metin Kutularını Göster")
-    box_img = image_cv.copy()
-    h, w, _ = box_img.shape
-    boxes = pytesseract.image_to_boxes(box_img)
-    for b in boxes.splitlines():
-        b = b.split()
-        box_img = cv2.rectangle(box_img, (int(b[1]), h - int(b[2])), (int(b[3]), h - int(b[4])), (0, 255, 0), 2)
-    st.image(box_img, caption="Metin Kutuları", use_container_width=True)
-
-    st.subheader("🔎 Belirli Kelimeyi Bul")
-    search_term = st.text_input("Aranacak kelime (örneğin: artificially)", value="artificially")
-
-    if search_term:
-        img_with_word = image_cv.copy()
-        data = pytesseract.image_to_data(img_with_word, output_type=Output.DICT)
-        n_boxes = len(data['text'])
-
-        for i in range(n_boxes):
-            if int(data['conf'][i]) > 60 and re.match(search_term, data['text'][i], re.IGNORECASE):
-                (x, y, w, h) = (data['left'][i], data['top'][i], data['width'][i], data['height'][i])
-                img_with_word = cv2.rectangle(img_with_word, (x, y), (x + w, y + h), (255, 0, 0), 2)
-
-        st.image(img_with_word, caption=f"'{search_term}' kelimesi işaretlendi", use_container_width=True)
+    st.image(cv2.cvtColor(img_boxed, cv2.COLOR_BGR2RGB), caption="Yazılarla İşaretlenmiş Görsel", use_container_width=True)
