@@ -52,7 +52,7 @@ if uploaded_file:
     # OCR işlemi
     st.subheader("🔍 OCR Sonucu")
     with st.spinner("Yazılar algılanıyor..."):
-        reader = easyocr.Reader(['en'])
+        reader = easyocr.Reader(['en', 'tr'], gpu=False)
         result = reader.readtext(processed)
         extracted_text = "\n".join([res[1] for res in result])
 
