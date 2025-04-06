@@ -13,7 +13,7 @@ uploaded_file = st.file_uploader("📁 Bir görsel yükleyin", type=["png", "jpg
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(image, caption="Yüklenen Görsel", use_column_width=True)
+    st.image(image, caption="Yüklenen Görsel", use_container_width=True)
 
     # OpenCV formatına dönüştür
     image_cv = np.array(image.convert('RGB'))
@@ -91,7 +91,7 @@ if uploaded_file is not None:
     for b in boxes.splitlines():
         b = b.split()
         box_img = cv2.rectangle(box_img, (int(b[1]), h - int(b[2])), (int(b[3]), h - int(b[4])), (0, 255, 0), 2)
-    st.image(box_img, caption="Metin Kutuları", use_column_width=True)
+    st.image(box_img, caption="Metin Kutuları", use_container_width=True)
 
     st.subheader("🔎 Belirli Kelimeyi Bul")
     search_term = st.text_input("Aranacak kelime (örneğin: artificially)", value="artificially")
@@ -106,4 +106,4 @@ if uploaded_file is not None:
                 (x, y, w, h) = (data['left'][i], data['top'][i], data['width'][i], data['height'][i])
                 img_with_word = cv2.rectangle(img_with_word, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
-        st.image(img_with_word, caption=f"'{search_term}' kelimesi işaretlendi", use_column_width=True)
+        st.image(img_with_word, caption=f"'{search_term}' kelimesi işaretlendi", use_container_width=True)
